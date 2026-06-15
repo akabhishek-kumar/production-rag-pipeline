@@ -1,0 +1,69 @@
+# UiPath Agentic Automation Guide
+
+## UiPath Coded Agents
+
+UiPath Coded Agents are code-first automation agents built using the UiPath SDK and Python or C#.
+Unlike traditional low-code Studio workflows, Coded Agents give developers full programming control:
+loops, conditionals, async/await, and third-party libraries like LangChain and LangGraph.
+
+A Coded Agent typically consists of a LangGraph state graph where each node performs a discrete
+action — calling an LLM, invoking a UiPath activity, or querying a database. The agent is deployed
+to UiPath Orchestrator as a standard process and can be triggered via API, queue, or schedule.
+
+## Model Context Protocol (MCP)
+
+The Model Context Protocol (MCP) is an open standard created by Anthropic for exposing tools and
+resources to LLMs in a structured, discoverable way. An MCP server registers tools using the
+@mcp.tool() decorator from the FastMCP library. Each tool has a name, description, and typed
+input schema defined using Python type hints.
+
+When a UiPath Coded Agent calls bind_tools(tools), the LLM receives all tool definitions and can
+invoke any of them by returning a ToolCall object in its response. The agent runtime detects the
+ToolCall, executes the corresponding tool function, and feeds the result back as a ToolMessage in
+the next LLM turn. This loop continues until the LLM returns a final answer without any ToolCall.
+
+## Harness Engineering
+
+Harness Engineering is the third layer of AI engineering, sitting above prompt engineering and
+context engineering. The term was coined by Mitchell Hashimoto in February 2026 and describes
+the discipline of designing the execution environment around autonomous AI agents.
+
+The five components of Harness Engineering are:
+1. Tool Registry: the set of tools the agent can call, defined via bind_tools() or @mcp.tool()
+2. Model Management: which LLM is used and how it is configured (model name from config/.env, not hardcoded)
+3. Context Management: how state is passed between steps using LangGraph MessagesState and message trimming
+4. Guardrails: recursion_limit, retry counters, iteration step counters, Orchestrator job timeout
+5. Verification Steps: post-execution checks independent of the LLM to confirm output correctness
+
+## RAG Pipelines
+
+Retrieval-Augmented Generation (RAG) grounds LLM responses in retrieved documents rather than
+parametric memory. The pipeline has two phases:
+
+Ingestion phase (run once, when documents change):
+- Load documents using loaders (PyPDFLoader, Docx2txtLoader, TextLoader)
+- Split into chunks using RecursiveCharacterTextSplitter (chunk_size=500, chunk_overlap=50)
+- Embed each chunk using an embedding model (OpenAI, FastEmbed, HuggingFace)
+- Store embeddings in a vector database (Chroma, Pinecone, Weaviate)
+
+Query phase (every user request):
+- Embed the user question
+- Find top-k most similar chunks by cosine similarity
+- Insert retrieved chunks as context into the LLM prompt
+- Generate answer grounded in retrieved context
+
+## LangGraph for Agent Orchestration
+
+LangGraph builds stateful multi-step agents as directed graphs. Key concepts:
+
+StateGraph: the graph builder. You add nodes (functions) and edges (connections).
+AgentState: a TypedDict that flows through every node. Each node reads from it and returns partial updates.
+MessagesState: built-in state with a messages list using add_messages reducer (appends, never replaces).
+MemorySaver: in-memory checkpointer that persists state across invocations using thread_id.
+Conditional edges: route to different nodes based on state inspection.
+recursion_limit: maximum number of node executions before GraphRecursionError is raised.
+
+The Planner-Generator-Evaluator pattern uses three nodes:
+- Planner: reformulates the question for better retrieval
+- Generator: produces an answer using a RAG chain
+- Evaluator: grades the answer and routes back to Planner if quality is insufficient
